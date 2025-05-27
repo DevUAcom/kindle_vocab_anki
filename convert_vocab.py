@@ -8,9 +8,11 @@ from datetime import datetime
 from operator import itemgetter
 from operator import attrgetter
 from collections import namedtuple
+import wordfreq
+import re
 
 
-AnkiNote = namedtuple('AnkiNote', 'word usage definition timestamp')
+AnkiNote = namedtuple('AnkiNote', 'word freq transcription usage definition timestamp')
 
 
 def get_vocab(vocab_db, _since=0):
@@ -29,12 +31,18 @@ def get_vocab(vocab_db, _since=0):
         on WORDS.id = LOOKUPS.word_key
         left join BOOK_INFO
         on BOOK_INFO.id = LOOKUPS.book_key
-        where LOOKUPS.timestamp > ?
+        where LOOKUPS.timestamp > ? and word is not null
         order by WORDS.stem, LOOKUPS.timestamp
     '''
     rows = cur.execute(sql, (since,)).fetchall()
     return rows
 
+def get_transcription(definition):
+    match = re.search(r'<div[^>]*>.*?\[([^\[\]]+)\]', definition)
+    if match:
+        return match.group(1)
+    else:
+        return None
 
 def make_notes(vocab, dict_tsv, include_nodef=False):
 
@@ -56,6 +64,7 @@ def make_notes(vocab, dict_tsv, include_nodef=False):
             usage = f'<blockquote>{_usage}<small>{entry["title"]}</small></blockquote>'
             usage_all += usage
             usage_timestamp = entry['timestamp']
+            freq = wordfreq.zipf_frequency(word, 'en')
 
         # Look up definition in dictionary
         try:
@@ -67,7 +76,8 @@ def make_notes(vocab, dict_tsv, include_nodef=False):
             else:
                 continue
 
-        note = AnkiNote(stem, usage_all, definition, usage_timestamp)
+        transcription = get_transcription(definition)
+        note = AnkiNote(stem, freq, transcription, usage_all, definition, usage_timestamp)
         notes.append(note)
 
     if stems_no_def:
@@ -83,7 +93,7 @@ def output_anki_tsv(notes, output, sort=True):
 
     with output as f:
         for note in notes:
-            line = f'{note.word}\t{note.usage}\t{note.definition}\n'
+            line = f'{note.word}\t{note.freq}\t{note.transcription}\t{note.usage}\t{note.definition}\n'
             f.write(line)
 
 
